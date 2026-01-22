@@ -14,6 +14,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 import os
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.tools import tool
+import json
 
 os.environ["LANGCHAIN_PROJECT"] = 'LANGGRAPH Project'
 
@@ -85,14 +86,38 @@ mysql_conn = mysql.connector.connect(
 )
 mysql_cursor = mysql_conn.cursor()
 
-def save_qa(thread_id, question, answer, chunk):
+def save_qa(thread_id, question, answer, chunk, chunk_timestamps):
     sql = """
     INSERT INTO coach_chat_logs
-    (thread_id, user_question, ai_answer, chunk)
-    VALUES (%s, %s, %s, %s)
+    (thread_id, user_question, ai_answer, chunk, chunk_timestamps)
+    VALUES (%s, %s, %s, %s, %s)
     """
-    mysql_cursor.execute(sql, (thread_id, question, answer, chunk))
+    mysql_cursor.execute(
+        sql,
+        (
+            thread_id,
+            question,
+            answer,
+            chunk,
+            json.dumps(chunk_timestamps)
+        )
+    )
     mysql_conn.commit()
+
+
+def extract_chunk_timestamps(docs, limit=5):
+    timestamps = []
+
+    for doc in docs:
+        ts = doc.metadata.get("timestamp")
+        if ts and ts not in timestamps:
+            timestamps.append(ts)
+
+        if len(timestamps) == limit:
+            break
+
+    return timestamps
+
 
 def save_stm_messages(thread_id, user_msg, ai_msg):
     sql = """
@@ -194,9 +219,6 @@ def load_stm_messages(thread_id):
 
     return messages
 
-
-
-
 class CoachAnswer(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     retrieved_docs: List[Document]
@@ -245,7 +267,11 @@ def answer(state: CoachAnswer):
         doc.page_content for doc in state["retrieved_docs"]
     )
 
-    save_qa(THREAD_ID, question, final_answer, chunk_text)
+    chunk_timestamps = extract_chunk_timestamps(
+    state["retrieved_docs"]
+)
+
+    save_qa(THREAD_ID, question, final_answer, chunk_text, chunk_timestamps)
     save_stm_messages(THREAD_ID, question, final_answer)
     summarize_and_trim(THREAD_ID)
 

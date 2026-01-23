@@ -14,6 +14,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 import os
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.tools import tool
+import json
 
 os.environ["LANGCHAIN_PROJECT"] = 'LANGGRAPH Project'
 
@@ -85,13 +86,22 @@ mysql_conn = mysql.connector.connect(
 )
 mysql_cursor = mysql_conn.cursor()
 
-def save_qa(thread_id, question, answer, chunk):
+def save_qa(thread_id, question, answer, chunk, chunk_timestamps):
     sql = """
     INSERT INTO coach_chat_logs
-    (thread_id, user_question, ai_answer, chunk)
-    VALUES (%s, %s, %s, %s)
+    (thread_id, user_question, ai_answer, chunk, chunk_timestamps)
+    VALUES (%s, %s, %s, %s, %s)
     """
-    mysql_cursor.execute(sql, (thread_id, question, answer, chunk))
+    mysql_cursor.execute(
+        sql,
+        (
+            thread_id,
+            question,
+            answer,
+            chunk,
+            json.dumps(chunk_timestamps)
+        )
+    )
     mysql_conn.commit()
 
 def load_history(thread_id, limit=5):
@@ -99,7 +109,7 @@ def load_history(thread_id, limit=5):
     SELECT user_question, ai_answer
     FROM coach_chat_logs
     WHERE thread_id = %s
-    ORDER BY time_stamp DESC
+    ORDER BY created_at DESC
     LIMIT %s
     """
     mysql_cursor.execute(sql, (thread_id, limit))
@@ -111,6 +121,19 @@ def load_history(thread_id, limit=5):
         messages.append(AIMessage(content=a))
 
     return messages
+
+def extract_chunk_timestamps(docs, limit=5):
+    timestamps = []
+
+    for doc in docs:
+        ts = doc.metadata.get("timestamp")
+        if ts and ts not in timestamps:
+            timestamps.append(ts)
+
+        if len(timestamps) == limit:
+            break
+
+    return timestamps
 
 class CoachAnswer(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
@@ -158,7 +181,11 @@ def answer(state: CoachAnswer):
         doc.page_content for doc in state["retrieved_docs"]
     )
 
-    save_qa(THREAD_ID, question, final_answer, chunk_text)
+    chunk_timestamps = extract_chunk_timestamps(
+    state["retrieved_docs"]
+)
+
+    save_qa(THREAD_ID, question, final_answer, chunk_text,chunk_timestamps)
 
     return {"answer": final_answer}
 

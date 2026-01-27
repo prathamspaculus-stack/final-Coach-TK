@@ -1,10 +1,6 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
 from dotenv import load_dotenv
 import uuid
 import mysql.connector
-import json
-import os
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
@@ -15,12 +11,14 @@ from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, List, Annotated
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+import os
+from langgraph.prebuilt import ToolNode, tools_condition
+from langchain_core.tools import tool
+import json
+
+os.environ["LANGCHAIN_PROJECT"] = 'LANGGRAPH Project'
 
 load_dotenv()
-
-os.environ["LANGCHAIN_PROJECT"] = "LANGGRAPH_API"
-
-app = FastAPI(title="Coach TK LangGraph API")
 
 THREAD_ID = str(uuid.uuid4())
 print("New thread started:", THREAD_ID)
@@ -47,9 +45,6 @@ retriever = vectorstore.as_retriever(
     search_kwargs={"k": 5}
 )
 
-
-
-# PROMPT
 p1 = PromptTemplate(
     input_variables=["question", "content"],
     template="""
@@ -83,10 +78,6 @@ ANSWER:
 """
 )
 
-
-
-#DATABASE CONNECTION AND FUNCTION
-
 mysql_conn = mysql.connector.connect(
     host="localhost",
     user="root",
@@ -103,50 +94,136 @@ def save_qa(thread_id, question, answer, chunk, chunk_timestamps):
     """
     mysql_cursor.execute(
         sql,
-        (thread_id, question, answer, chunk, json.dumps(chunk_timestamps))
+        (
+            thread_id,
+            question,
+            answer,
+            chunk,
+            json.dumps(chunk_timestamps)
+        )
     )
     mysql_conn.commit()
 
-def load_history(thread_id, limit=5):
-    sql = """
-    SELECT user_question, ai_answer
-    FROM coach_chat_logs
-    WHERE thread_id = %s
-    ORDER BY created_at DESC
-    LIMIT %s
-    """
-    mysql_cursor.execute(sql, (thread_id, limit))
-    rows = mysql_cursor.fetchall()
-
-    messages = []
-    for q, a in rows:
-        messages.append(HumanMessage(content=q))
-        messages.append(AIMessage(content=a))
-
-    return messages
 
 def extract_chunk_timestamps(docs, limit=5):
     timestamps = []
+
     for doc in docs:
         ts = doc.metadata.get("timestamp")
         if ts and ts not in timestamps:
             timestamps.append(ts)
+
         if len(timestamps) == limit:
             break
+
     return timestamps
 
 
+def save_stm_messages(thread_id, user_msg, ai_msg):
+    sql = """
+    INSERT INTO coach_thread_last_messages
+    (thread_id, user_message, ai_message)
+    VALUES (%s, %s, %s)
+    """
+    mysql_cursor.execute(sql, (thread_id, user_msg, ai_msg))
+    mysql_conn.commit()
 
+def summarize_and_trim(thread_id):
+    mysql_cursor.execute(
+        """
+        SELECT id, user_message, ai_message
+        FROM coach_thread_last_messages
+        WHERE thread_id = %s
+        ORDER BY created_at
+        """,
+        (thread_id,)
+    )
+    rows = mysql_cursor.fetchall()
 
+    # nothing to do
+    if len(rows) <= 5:
+        return
 
-# GRAPH LOGIC
+    # split old vs keep
+    old_rows = rows[:-5]   # messages to summarize  
+
+    # load existing summary
+    mysql_cursor.execute(
+        "SELECT summary FROM coach_thread_summary WHERE thread_id = %s",
+        (thread_id,)
+    )
+    row = mysql_cursor.fetchone()
+    old_summary = row[0] if row else ""
+
+    # build text to summarize
+    text = old_summary + "\n\n"
+    for _, u, a in old_rows:
+        text += f"USER: {u}\nAI: {a}\n"
+
+    prompt = f"""
+    Update the long-term memory summary.
+    Keep important context, decisions, and preferences.
+    Be short and clear.
+
+    {text}
+    """
+
+    new_summary = parser.invoke(model.invoke(prompt))
+
+    # save summary permanently
+    mysql_cursor.execute(
+        """
+        INSERT INTO coach_thread_summary (thread_id, summary)
+        VALUES (%s, %s)
+        ON DUPLICATE KEY UPDATE summary = %s
+        """,
+        (thread_id, new_summary, new_summary)
+    )
+
+    # delete only summarized rows
+    old_ids = ",".join(str(r[0]) for r in old_rows)
+    mysql_cursor.execute(
+        f"DELETE FROM coach_thread_last_messages WHERE id IN ({old_ids})"
+    )
+
+    mysql_conn.commit()
+
+def load_stm_messages(thread_id):
+    mysql_cursor.execute(
+        "SELECT summary FROM coach_thread_summary WHERE thread_id = %s",
+        (thread_id,)
+    )
+    row = mysql_cursor.fetchone()
+    summary = row[0] if row else ""
+
+    mysql_cursor.execute(
+        """
+        SELECT user_message, ai_message
+        FROM coach_thread_last_messages
+        WHERE thread_id = %s
+        ORDER BY created_at
+        """,
+        (thread_id,)
+    )
+    rows = mysql_cursor.fetchall()
+
+    messages = []
+    if summary:
+        messages.append(
+            AIMessage(content=f"[MEMORY SUMMARY]\n{summary}")
+        )
+
+    for u, a in rows:
+        messages.append(HumanMessage(content=u))
+        messages.append(AIMessage(content=a))
+
+    return messages
 
 class CoachAnswer(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     retrieved_docs: List[Document]
     context: str
     answer: str
-    thread_id: str
 
 def retrieve_docs(state: CoachAnswer):
     question = state["messages"][-1].content
@@ -154,9 +231,11 @@ def retrieve_docs(state: CoachAnswer):
     return {"retrieved_docs": docs}
 
 def context(state: CoachAnswer):
+
+    stm_messages = load_stm_messages(THREAD_ID)
     chat_history = "\n".join(
-        f"{m.type.upper()}: {m.content}" for m in state["messages"]
-    )
+    f"{m.type.upper()}: {m.content}" for m in stm_messages
+)
 
     chunks = []
     for i, doc in enumerate(state["retrieved_docs"], 1):
@@ -188,20 +267,16 @@ def answer(state: CoachAnswer):
         doc.page_content for doc in state["retrieved_docs"]
     )
 
-    chunk_timestamps = extract_chunk_timestamps(state["retrieved_docs"])
+    chunk_timestamps = extract_chunk_timestamps(
+    state["retrieved_docs"]
+)
 
-    save_qa(
-        state["thread_id"],
-        question,
-        final_answer,
-        chunk_text,
-        chunk_timestamps
-    )
+    save_qa(THREAD_ID, question, final_answer, chunk_text, chunk_timestamps)
+    save_stm_messages(THREAD_ID, question, final_answer)
+    summarize_and_trim(THREAD_ID)
+
 
     return {"answer": final_answer}
-
-
-
 
 graph = StateGraph(CoachAnswer)
 graph.add_node("retrieve_docs", retrieve_docs)
@@ -215,69 +290,24 @@ graph.add_edge("answer", END)
 
 workflow = graph.compile()
 
+while True:
+    user_message = input("You: ")
 
-
-
-# API
-
-class ChatRequest(BaseModel):
-    message: str
-
-class ContinueChatRequest(BaseModel):
-    thread_id: str
-    message: str
-
-class RetrieveRequest(BaseModel):
-    question: str
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-@app.post("/rag/retrieve")
-def rag_retrieve(req: RetrieveRequest):
-    docs = retriever.invoke(req.question)
-
-    results = []
-    for doc in docs:
-        results.append({
-            "content": doc.page_content,
-            "source_link": doc.metadata.get("reference_link"),
-            "timestamp": doc.metadata.get("timestamp")
-        })
-
-    return {
-        "question": req.question,
-        "total_chunks": len(results),
-        "chunks": results
-    }
-
-@app.post("/thread/create")
-def create_thread():
-    return {"thread_id": str(uuid.uuid4())}
-
-@app.get("/chat/history/{thread_id}")
-def chat_history(thread_id: str):
-    messages = load_history(thread_id)
-    return {
-        "history": [
-            {"role": m.type, "content": m.content}
-            for m in messages
-        ]
-    }
-
-@app.post("/chat/continue")
-def continue_chat(req: ContinueChatRequest):
-    past_messages = load_history(req.thread_id)
+    if user_message.lower() in ["exit", "quit", "bye"]:
+        print("Session ended.")
+        break
 
     state = {
-        "messages": past_messages + [HumanMessage(content=req.message)],
-        "thread_id": req.thread_id
-    }
+    "messages": [HumanMessage(content=user_message)]
+}
 
     result = workflow.invoke(
-        state,
-        config={"configurable": {"thread_id": req.thread_id}}
-    )
-
-    return {"answer": result["answer"]}
+    state,
+    config={
+        "configurable": {
+            "thread_id": THREAD_ID
+        }
+    }
+)
+    
+    print("TK:", result["answer"])

@@ -20,7 +20,7 @@ load_dotenv()
 
 os.environ["LANGCHAIN_PROJECT"] = "LANGGRAPH_API"
 
-app = FastAPI(title="Coach TK LangGraph API")
+app = FastAPI(title="Coach TK")
 
 THREAD_ID = str(uuid.uuid4())
 print("New thread started:", THREAD_ID)
@@ -125,6 +125,25 @@ def load_history(thread_id, limit=5):
 
     return messages
 
+def load_chat(thread_id):
+    sql = """
+    SELECT user_question, ai_answer
+    FROM coach_chat_logs
+    WHERE thread_id = %s
+    ORDER BY created_at ASC
+    """
+    mysql_cursor.execute(sql, (thread_id,))
+    rows = mysql_cursor.fetchall()
+
+    messages = []
+    for q, a in rows:
+        messages.append({"role": "human", "content": q})
+        messages.append({"role": "ai", "content": a})
+
+    return messages
+
+
+
 def extract_chunk_timestamps(docs, limit=5):
     timestamps = []
     for doc in docs:
@@ -134,7 +153,6 @@ def extract_chunk_timestamps(docs, limit=5):
         if len(timestamps) == limit:
             break
     return timestamps
-
 
 
 
@@ -200,9 +218,6 @@ def answer(state: CoachAnswer):
 
     return {"answer": final_answer}
 
-
-
-
 graph = StateGraph(CoachAnswer)
 graph.add_node("retrieve_docs", retrieve_docs)
 graph.add_node("context", context)
@@ -214,8 +229,6 @@ graph.add_edge("context", "answer")
 graph.add_edge("answer", END)
 
 workflow = graph.compile()
-
-
 
 
 # API
@@ -230,9 +243,9 @@ class ContinueChatRequest(BaseModel):
 class RetrieveRequest(BaseModel):
     question: str
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+# @app.get("/health")
+# def health():
+#     return {"status": "ok"}
 
 @app.post("/rag/retrieve")
 def rag_retrieve(req: RetrieveRequest):
@@ -256,15 +269,12 @@ def rag_retrieve(req: RetrieveRequest):
 def create_thread():
     return {"thread_id": str(uuid.uuid4())}
 
+
 @app.get("/chat/history/{thread_id}")
 def chat_history(thread_id: str):
-    messages = load_history(thread_id)
-    return {
-        "history": [
-            {"role": m.type, "content": m.content}
-            for m in messages
-        ]
-    }
+    messages = load_chat(thread_id)
+    return {"history": messages}
+
 
 @app.post("/chat/continue")
 def continue_chat(req: ContinueChatRequest):

@@ -12,7 +12,7 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langgraph.graph import StateGraph, START, END
-from typing import TypedDict, List, Annotated
+from typing import TypedDict, List, Annotated, Optional
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
@@ -23,7 +23,6 @@ os.environ["LANGCHAIN_PROJECT"] = "LANGGRAPH_API"
 app = FastAPI(title="Coach TK")
 
 THREAD_ID = str(uuid.uuid4())
-print("New thread started:", THREAD_ID)
 
 parser = StrOutputParser()
 
@@ -237,7 +236,7 @@ class ChatRequest(BaseModel):
     message: str
 
 class ContinueChatRequest(BaseModel):
-    thread_id: str
+    thread_id: Optional[str]=None
     message: str
 
 class RetrieveRequest(BaseModel):
@@ -291,3 +290,71 @@ def continue_chat(req: ContinueChatRequest):
     )
 
     return {"answer": result["answer"]}
+
+@app.post("/chat")
+def chat(req: ChatRequest):
+
+    past_messages = load_history(THREAD_ID)
+
+    state = {
+        "thread_id": THREAD_ID,
+        "messages": past_messages + [HumanMessage(content=req.message)]
+    }
+
+    result = workflow.invoke(
+        state,
+        config={"configurable": {"thread_id": THREAD_ID}}
+    )
+
+    return {
+        "thread_id": THREAD_ID,
+        "answer": result["answer"]
+        }
+
+
+@app.post("/newchat")
+def chat(req: ChatRequest):
+
+    thread_id = str(uuid.uuid4())
+
+    past_messages = load_history(thread_id)
+
+    state = {
+        "thread_id": thread_id,
+        "messages": past_messages + [HumanMessage(content=req.message)]
+    }
+
+    result = workflow.invoke(
+        state,
+        config={"configurable": {"thread_id": thread_id}}
+    )
+
+    return {
+        "thread_id": thread_id,
+        "answer": result["answer"]
+        }
+
+@app.post("/chats")
+def chats(req: ContinueChatRequest):
+
+    thread_id = req.thread_id or str(uuid.uuid4())
+
+    past_messages = load_history(thread_id)
+
+    state = {
+        "thread_id": thread_id,
+        "messages": past_messages + [
+            HumanMessage(content=req.message)
+        ]
+    }
+
+    result = workflow.invoke(
+        state,
+        config={"configurable": {"thread_id": thread_id}}
+    )
+
+    return {
+        "thread_id": thread_id,
+        "answer": result["answer"]
+    }
+

@@ -1,0 +1,118 @@
+source_type = "YouTube"
+reference_link = "https://www.youtube.com/watch?v=ABC123"
+
+{
+  "domain": "IT",
+  "topic": "Cyber Security",
+  "content_type": "Story"
+}
+
+metadata = json.loads(raw_metadata)
+
+metadata["source_type"] = source_type
+metadata["reference_link"] = reference_link
+
+
+
+
+
+C:\Users\Administrator\Desktop\audio
+
+video to audio code:- ffmpeg -i "module1.mp4" -vn -c:a aac -b:a 128k "module1_audio.m4a"
+
+
+
+module0:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247547532
+module1:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/246540549
+module2:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247004169
+module3:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247198680
+module4:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247265305
+module5:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247357450
+module6:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247198630
+module7:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247193822
+module8:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247181218
+module9:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247181178
+module10:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247521979
+module11:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247181115
+module12:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247073114
+module13:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247073178
+module14:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247216146
+module15:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247521985
+module16:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247522032
+module17:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247522055
+module18:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247522206
+module19:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247416302
+module20:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247416209
+module21:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247073311
+module22:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247073281
+module23:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247073230
+module24:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247006256
+module25:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/247004100
+module26:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/246883089
+module27:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/246748046
+module28:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/246633500
+module29:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/246618551
+module30:- https://vimeo.com/reviews/48b3efa2-8184-4747-aaf2-e2591f669f92/videos/246822580
+
+
+YouTube motivational video → YouTube
+
+Spotify / audio talk → Podcast
+
+Paid / structured learning modules →  Course
+
+Text / PDF / ebook → Book
+
+
+
+sql passwoed:- newpassword
+
+
+https://www.kaggle.com/competitions/cs4248-fact-check-2220/data
+https://www.kaggle.com/datasets/ayessa/fact-and-opinion-statement-nlp?utm_source=chatgpt.com
+
+
+# sql
+
+
+use coachtk;
+
+SELECT * FROM coachtk.file_registry;
+
+drop table coachtk.file_registry;
+
+CREATE TABLE file_registry (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    hash_id VARCHAR(255) NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_path TEXT NOT NULL,
+    file_type VARCHAR(50) NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE coach_chat_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    thread_id VARCHAR(255) NOT NULL,
+
+    user_question TEXT NOT NULL,
+    ai_answer TEXT NOT NULL,
+
+    chunk LONGTEXT,                 -- original retrieved text
+    chunk_timestamps TEXT,          -- timestamps stored as JSON/string
+
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+
+ALTER TABLE coach_chat_logs
+ADD COLUMN chunk_full TEXT;
+
+UPDATE coach_chat_logs
+SET chunk_full = CONCAT(chunk, ' | TIMESTAMPS: ', chunk_timestamps);
+
+ALTER TABLE coach_chat_logs
+DROP COLUMN chunk,
+DROP COLUMN chunk_timestamps;
+
+
+
